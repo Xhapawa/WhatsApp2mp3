@@ -60,7 +60,7 @@
         <p>Converts WhatsApp voice messages (OGG) to MP3 right in your browser.</p>
         <p><b>Note</b>: Needs internet to load the converter tool (first use). Conversion is local.</p>
         <p>Use Chrome or Firefox for best results.</p>
-        <p>If it doesn’t work, ensure you’re online and accessed this via the provided link.</p>
+        <p>If it doesn’t work, check the browser console (F12) or ensure you’re online.</p>
     </div>
     <h1>WhatsApp to MP3</h1>
     <input type="file" id="audioInput" accept="audio/*,.ogg">
@@ -72,58 +72,73 @@
 
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
     <script>
+        console.log('Script loaded');
         // Check SharedArrayBuffer
         const status = document.getElementById('status');
         const convertButton = document.getElementById('convertButton');
         if (typeof SharedArrayBuffer === 'undefined') {
             status.innerHTML = 
-                'Error: Converter won’t work! Access via the provided online link or Chrome/Firefox. <a href="https://github.com/xhapawa/WhatsApp2mp3" target="_blank">Get the correct link</a>.';
+                'Error: Converter won’t work! Ensure you’re using Chrome/Firefox and the correct link: <a href="https://xhapawa.github.io/WhatsApp2mp3/whatsapp_to_mp3.html">Try again</a>.';
             convertButton.disabled = true;
+            console.error('SharedArrayBuffer unavailable');
             return;
         }
 
         const { createFFmpeg, fetchFile } = FFmpeg;
-        const ffmpeg = createFFmpeg({ log: false });
+        const ffmpeg = createFFmpeg({ log: true });
         let isLoaded = false;
 
         async function loadFFmpeg() {
             if (!isLoaded) {
                 status.textContent = 'Status: Loading converter (needs internet)...';
+                console.log('Loading FFmpeg...');
                 try {
                     await ffmpeg.load();
                     isLoaded = true;
                     status.textContent = 'Status: Ready';
+                    console.log('FFmpeg loaded');
                 } catch (e) {
-                    throw new Error('Failed to load converter: ' + e.message);
+                    status.textContent = 'Status: Failed to load converter';
+                    console.error('FFmpeg load error:', e);
+                    throw e;
                 }
             }
         }
 
         async function convertAudio() {
+            console.log('convertAudio called');
             const input = document.getElementById('audioInput');
             const downloadLink = document.getElementById('downloadLink');
 
             if (!input.files[0]) {
                 status.textContent = 'Status: Select a WhatsApp audio!';
+                console.log('No file selected');
                 return;
             }
 
             const file = input.files[0];
             status.textContent = 'Status: Converting...';
+            console.log('File selected:', file.name);
 
             try {
                 await loadFFmpeg();
+                console.log('Writing file to FFmpeg FS');
                 ffmpeg.FS('writeFile', file.name, await fetchFile(file));
+                console.log('Running FFmpeg conversion');
                 await ffmpeg.run('-i', file.name, '-c:a', 'mp3', 'output.mp3');
+                console.log('Reading output file');
                 const data = ffmpeg.FS('readFile', 'output.mp3');
+                console.log('Creating Blob');
                 const blob = new Blob([data.buffer], { type: 'audio/mp3' });
                 const mp3Url = URL.createObjectURL(blob);
                 downloadLink.href = mp3Url;
                 downloadLink.download = 'converted.mp3';
                 downloadLink.style.display = 'inline';
                 status.textContent = 'Status: Done! Download your MP3.';
+                console.log('Conversion complete');
             } catch (e) {
-                status.textContent = 'Status: Failed - ' + e.message);
+                status.textContent = 'Status: Failed - ' + e.message;
+                console.error('Conversion error:', e);
             }
         }
     </script>
