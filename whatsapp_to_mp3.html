@@ -3,143 +3,311 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
-    <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
-    <title>WhatsApp Audio to MP3 Converter</title>
+    <title>WhatsApp OPUS to MP3 Converter</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             max-width: 600px;
-            margin: auto;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #075e54;
             text-align: center;
         }
-        input, button {
-            margin: 10px;
-            padding: 10px;
+        .file-input {
+            margin: 20px 0;
+        }
+        button {
+            background-color: #075e54;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
             font-size: 16px;
-            width: 200px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #128c7e;
         }
         button:disabled {
-            background: #ccc;
+            background-color: #cccccc;
             cursor: not-allowed;
         }
         #status {
-            color: #333;
-            font-weight: bold;
-            margin: 10px 0;
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .progress-container {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        #progressBar {
+            width: 0%;
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 5px;
+            transition: width 0.3s;
         }
         #downloadLink {
             display: none;
-            margin-top: 10px;
+            margin-top: 15px;
+            text-align: center;
+        }
+        .download-btn {
+            background-color: #25D366;
+            color: white;
             text-decoration: none;
-            color: #007bff;
-            font-size: 16px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            display: inline-block;
         }
-        #instructions {
-            background: #e9ecef;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            text-align: left;
+        .file-info {
+            margin-top: 10px;
             font-size: 14px;
-        }
-        #instructions code {
-            background: #f1f1f1;
-            padding: 2px 4px;
-            border-radius: 4px;
-        }
-        #instructions a {
-            color: #007bff;
+            color: #666;
         }
     </style>
 </head>
 <body>
-    <div id="instructions">
-        <h3>WhatsApp Audio to MP3 Converter</h3>
-        <p>Converts WhatsApp voice messages (OGG) to MP3 right in your browser.</p>
-        <p><b>Note</b>: Needs internet to load the converter tool (first use). Conversion is local.</p>
-        <p>Use Chrome or Firefox for best results.</p>
-        <p>If it doesn’t work, check the browser console (F12) or ensure you’re online.</p>
+    <div class="container">
+        <h1>WhatsApp Voice to MP3</h1>
+        <p>Convert WhatsApp voice messages (.opus) to MP3 format</p>
+        
+        <div class="file-input">
+            <input type="file" id="audioFile" accept=".opus,.ogg" />
+            <div id="fileInfo" class="file-info"></div>
+        </div>
+        
+        <button id="convertBtn" disabled>Convert to MP3</button>
+        
+        <div class="progress-container" id="progressContainer" style="display: none;">
+            <div id="progressBar"></div>
+        </div>
+        
+        <div id="status"></div>
+        
+        <a id="downloadLink" class="download-btn">Download MP3</a>
     </div>
-    <h1>WhatsApp to MP3</h1>
-    <input type="file" id="audioInput" accept="audio/*,.ogg">
-    <br>
-    <button id="convertButton" onclick="convertAudio()">Convert to MP3</button>
-    <br>
-    <a id="downloadLink">Download MP3</a>
-    <p id="status">Status: Ready</p>
 
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
+    <!-- Required Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/opus-decoder@1.7.0/dist/opusDecoder.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js"></script>
+    
     <script>
-        console.log('Script loaded');
-        // Check SharedArrayBuffer
-        const status = document.getElementById('status');
-        const convertButton = document.getElementById('convertButton');
-        if (typeof SharedArrayBuffer === 'undefined') {
-            status.innerHTML = 
-                'Error: Converter won’t work! Ensure you’re using Chrome/Firefox and the correct link: <a href="https://xhapawa.github.io/WhatsApp2mp3/whatsapp_to_mp3.html">Try again</a>.';
-            convertButton.disabled = true;
-            console.error('SharedArrayBuffer unavailable');
-            return;
-        }
-
-        const { createFFmpeg, fetchFile } = FFmpeg;
-        const ffmpeg = createFFmpeg({ log: true });
-        let isLoaded = false;
-
-        async function loadFFmpeg() {
-            if (!isLoaded) {
-                status.textContent = 'Status: Loading converter (needs internet)...';
-                console.log('Loading FFmpeg...');
+        // Web Worker for background processing
+        const workerScript = `
+            self.importScripts('https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js');
+            
+            self.addEventListener('message', async (e) => {
+                const { audioBuffer, sampleRate, channels } = e.data;
+                
                 try {
-                    await ffmpeg.load();
-                    isLoaded = true;
-                    status.textContent = 'Status: Ready';
-                    console.log('FFmpeg loaded');
-                } catch (e) {
-                    status.textContent = 'Status: Failed to load converter';
-                    console.error('FFmpeg load error:', e);
-                    throw e;
+                    const mp3Blob = encodeToMP3(audioBuffer, sampleRate, channels);
+                    self.postMessage({ success: true, mp3Blob });
+                } catch (error) {
+                    self.postMessage({ success: false, error: error.message });
                 }
+            });
+            
+            function encodeToMP3(audioBuffer, sampleRate, channels) {
+                const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, 128);
+                const samples = [];
+                
+                for (let channel = 0; channel < channels; channel++) {
+                    samples.push(audioBuffer[channel]);
+                }
+                
+                const mp3Data = [];
+                const sampleBlockSize = 1152;
+                
+                for (let i = 0; i < samples[0].length; i += sampleBlockSize) {
+                    const chunk = samples.map(channel => 
+                        new Float32Array(channel.buffer, i * 4, Math.min(sampleBlockSize, channel.length - i))
+                    );
+                    const mp3buf = mp3encoder.encodeBuffer(...chunk);
+                    if (mp3buf.length > 0) mp3Data.push(mp3buf);
+                }
+                
+                const mp3buf = mp3encoder.flush();
+                if (mp3buf.length > 0) mp3Data.push(mp3buf);
+                
+                return new Blob(mp3Data, { type: 'audio/mp3' });
             }
-        }
+        `;
+        
+        // Create worker blob URL
+        const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
+        
+        // DOM elements
+        const audioFileInput = document.getElementById('audioFile');
+        const convertBtn = document.getElementById('convertBtn');
+        const statusEl = document.getElementById('status');
+        const downloadLink = document.getElementById('downloadLink');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const fileInfoEl = document.getElementById('fileInfo');
 
-        async function convertAudio() {
-            console.log('convertAudio called');
-            const input = document.getElementById('audioInput');
-            const downloadLink = document.getElementById('downloadLink');
+        // File size limit (5MB - WhatsApp voice messages are typically smaller)
+        const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-            if (!input.files[0]) {
-                status.textContent = 'Status: Select a WhatsApp audio!';
-                console.log('No file selected');
+        // Initialize OPUS decoder
+        const opusDecoder = new OpusDecoder({
+            forceStereo: false,
+            preSkip: 0,
+        });
+        
+        // Wait for decoder to be ready
+        opusDecoder.ready.then(() => {
+            console.log('OPUS decoder ready');
+        }).catch(err => {
+            console.error('OPUS decoder failed to initialize:', err);
+            statusEl.textContent = 'Error: Audio decoder unavailable';
+            statusEl.style.backgroundColor = '#f8d7da';
+        });
+
+        // File input handler
+        audioFileInput.addEventListener('change', () => {
+            if (!audioFileInput.files.length) {
+                convertBtn.disabled = true;
+                fileInfoEl.textContent = '';
                 return;
             }
 
-            const file = input.files[0];
-            status.textContent = 'Status: Converting...';
-            console.log('File selected:', file.name);
-
-            try {
-                await loadFFmpeg();
-                console.log('Writing file to FFmpeg FS');
-                ffmpeg.FS('writeFile', file.name, await fetchFile(file));
-                console.log('Running FFmpeg conversion');
-                await ffmpeg.run('-i', file.name, '-c:a', 'mp3', 'output.mp3');
-                console.log('Reading output file');
-                const data = ffmpeg.FS('readFile', 'output.mp3');
-                console.log('Creating Blob');
-                const blob = new Blob([data.buffer], { type: 'audio/mp3' });
-                const mp3Url = URL.createObjectURL(blob);
-                downloadLink.href = mp3Url;
-                downloadLink.download = 'converted.mp3';
-                downloadLink.style.display = 'inline';
-                status.textContent = 'Status: Done! Download your MP3.';
-                console.log('Conversion complete');
-            } catch (e) {
-                status.textContent = 'Status: Failed - ' + e.message;
-                console.error('Conversion error:', e);
+            const file = audioFileInput.files[0];
+            
+            // Validate file size
+            if (file.size > MAX_FILE_SIZE) {
+                statusEl.textContent = `Error: File too large (max ${MAX_FILE_SIZE/1024/1024}MB)`;
+                statusEl.style.backgroundColor = '#f8d7da';
+                convertBtn.disabled = true;
+                fileInfoEl.textContent = '';
+                return;
             }
+
+            // Show file info
+            fileInfoEl.textContent = `File: ${file.name} (${(file.size/1024).toFixed(1)}KB)`;
+            convertBtn.disabled = false;
+            statusEl.textContent = '';
+            statusEl.style.backgroundColor = '';
+        });
+
+        // Conversion function
+        convertBtn.addEventListener('click', async () => {
+            if (!audioFileInput.files.length) return;
+            
+            const file = audioFileInput.files[0];
+            statusEl.textContent = 'Processing your file...';
+            statusEl.style.backgroundColor = '#fff3cd';
+            progressContainer.style.display = 'block';
+            convertBtn.disabled = true;
+            
+            try {
+                // Show progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress = Math.min(progress + 2, 90);
+                    progressBar.style.width = \`\${progress}%\`;
+                }, 100);
+                
+                // Read and decode the file
+                const arrayBuffer = await file.arrayBuffer();
+                const audioData = await decodeOpusFile(arrayBuffer);
+                
+                // Use Web Worker for MP3 encoding
+                const worker = new Worker(workerUrl);
+                
+                worker.postMessage({
+                    audioBuffer: audioData.channelData,
+                    sampleRate: audioData.sampleRate,
+                    channels: audioData.channelData.length
+                });
+                
+                worker.onmessage = (e) => {
+                    clearInterval(progressInterval);
+                    progressBar.style.width = '100%';
+                    
+                    if (e.data.success) {
+                        const mp3Blob = e.data.mp3Blob;
+                        
+                        // Create download link
+                        const url = URL.createObjectURL(mp3Blob);
+                        downloadLink.href = url;
+                        downloadLink.download = file.name.replace(/\.[^/.]+$/, '') + '.mp3';
+                        downloadLink.style.display = 'inline-block';
+                        
+                        statusEl.textContent = 'Conversion successful!';
+                        statusEl.style.backgroundColor = '#d4edda';
+                        
+                        // Auto-reset after 30 seconds
+                        setTimeout(resetConverter, 30000);
+                    } else {
+                        throw new Error(e.data.error);
+                    }
+                    worker.terminate();
+                };
+                
+                worker.onerror = (error) => {
+                    clearInterval(progressInterval);
+                    throw error;
+                };
+                
+            } catch (error) {
+                console.error('Conversion error:', error);
+                statusEl.textContent = \`Error: \${error.message}\`;
+                statusEl.style.backgroundColor = '#f8d7da';
+                progressBar.style.backgroundColor = '#dc3545';
+                convertBtn.disabled = false;
+            }
+        });
+        
+        async function decodeOpusFile(arrayBuffer) {
+            // First try Web Audio API (for browsers that support OPUS)
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                return {
+                    channelData: Array.from({ length: audioBuffer.numberOfChannels }, (_, i) => 
+                        audioBuffer.getChannelData(i)
+                    ),
+                    sampleRate: audioBuffer.sampleRate
+                };
+            } catch (webAudioError) {
+                console.log('Web Audio API failed, trying OPUS decoder:', webAudioError);
+                
+                // Fallback to OPUS decoder
+                try {
+                    await opusDecoder.ready;
+                    const decodedData = await opusDecoder.decode(arrayBuffer);
+                    return decodedData;
+                } catch (opusError) {
+                    throw new Error(\`Failed to decode audio: \${opusError.message}\`);
+                }
+            }
+        }
+        
+        function resetConverter() {
+            audioFileInput.value = '';
+            convertBtn.disabled = true;
+            statusEl.textContent = '';
+            statusEl.style.backgroundColor = '';
+            progressContainer.style.display = 'none';
+            progressBar.style.width = '0%';
+            progressBar.style.backgroundColor = '#4CAF50';
+            downloadLink.style.display = 'none';
+            fileInfoEl.textContent = '';
         }
     </script>
 </body>
