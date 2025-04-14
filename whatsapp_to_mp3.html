@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+    <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+    <title>WhatsApp Audio to MP3 Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 600px;
+            margin: auto;
+            text-align: center;
+        }
+        input, button {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+            width: 200px;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #status {
+            color: #333;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        #downloadLink {
+            display: none;
+            margin-top: 10px;
+            text-decoration: none;
+            color: #007bff;
+            font-size: 16px;
+        }
+        #instructions {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: left;
+            font-size: 14px;
+        }
+        #instructions code {
+            background: #f1f1f1;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        #instructions a {
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">
+        <h3>WhatsApp Audio to MP3 Converter</h3>
+        <p>Converts WhatsApp voice messages (OGG) to MP3 right in your browser.</p>
+        <p><b>Note</b>: Needs internet to load the converter tool (first use). Conversion is local.</p>
+        <p>Use Chrome or Firefox for best results.</p>
+        <p>If it doesn’t work, ensure you’re online and accessed this via the provided link.</p>
+    </div>
+    <h1>WhatsApp to MP3</h1>
+    <input type="file" id="audioInput" accept="audio/*,.ogg">
+    <br>
+    <button id="convertButton" onclick="convertAudio()">Convert to MP3</button>
+    <br>
+    <a id="downloadLink">Download MP3</a>
+    <p id="status">Status: Ready</p>
+
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
+    <script>
+        // Check SharedArrayBuffer
+        const status = document.getElementById('status');
+        const convertButton = document.getElementById('convertButton');
+        if (typeof SharedArrayBuffer === 'undefined') {
+            status.innerHTML = 
+                'Error: Converter won’t work! Access via the provided online link or Chrome/Firefox. <a href="https://github.com/xhapawa/WhatsApp2mp3" target="_blank">Get the correct link</a>.';
+            convertButton.disabled = true;
+            return;
+        }
+
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        const ffmpeg = createFFmpeg({ log: false });
+        let isLoaded = false;
+
+        async function loadFFmpeg() {
+            if (!isLoaded) {
+                status.textContent = 'Status: Loading converter (needs internet)...';
+                try {
+                    await ffmpeg.load();
+                    isLoaded = true;
+                    status.textContent = 'Status: Ready';
+                } catch (e) {
+                    throw new Error('Failed to load converter: ' + e.message);
+                }
+            }
+        }
+
+        async function convertAudio() {
+            const input = document.getElementById('audioInput');
+            const downloadLink = document.getElementById('downloadLink');
+
+            if (!input.files[0]) {
+                status.textContent = 'Status: Select a WhatsApp audio!';
+                return;
+            }
+
+            const file = input.files[0];
+            status.textContent = 'Status: Converting...';
+
+            try {
+                await loadFFmpeg();
+                ffmpeg.FS('writeFile', file.name, await fetchFile(file));
+                await ffmpeg.run('-i', file.name, '-c:a', 'mp3', 'output.mp3');
+                const data = ffmpeg.FS('readFile', 'output.mp3');
+                const blob = new Blob([data.buffer], { type: 'audio/mp3' });
+                const mp3Url = URL.createObjectURL(blob);
+                downloadLink.href = mp3Url;
+                downloadLink.download = 'converted.mp3';
+                downloadLink.style.display = 'inline';
+                status.textContent = 'Status: Done! Download your MP3.';
+            } catch (e) {
+                status.textContent = 'Status: Failed - ' + e.message);
+            }
+        }
+    </script>
+</body>
+</html>
